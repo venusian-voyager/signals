@@ -1,39 +1,32 @@
 {
-    "name": "venusian-voyager/events",
-    "description": "The Voyager Events package.",
+    "name": "venusian-voyager/signals",
+    "description": "The Voyager Hooks package.",
     "license": "MIT",
     "authors": [
         {
             "name": "Angel Gonzalez",
             "email": "angel@projectsaturnstudios.com"
-        },
-        {
-            "name": "Taylor Otwell"
         }
     ],
     "require": {
         "php": "^8.4|^8.5",
-        "venusian-voyager/bus": "^0.8.0",
-        "venusian-voyager/collections": "^0.8.0",
-        "venusian-voyager/vessel": "^0.8.0",
-        "venusian-voyager/contracts": "^0.8.0",
-        "venusian-voyager/macroable": "^0.8.0",
-        "venusian-voyager/nuts-and-bolts": "^0.8.0"
+        "laravel/serializable-closure": "^2.0",
+        "venusian-voyager/macroable": "^0.9.0",
+        "venusian-voyager/contracts": "^0.9.0",
+        "venusian-voyager/collections": "^0.9.0",
+        "venusian-voyager/nuts-and-bolts": "^0.9.0"
     },
     "autoload": {
         "psr-4": {
-            "Voyager\\Events\\": ""
-        }
+            "Voyager\\Signals\\": ""
+        },
+        "files": [
+            "Helpers/functions.php"
+        ]
     },
     "extra": {
         "branch-alias": {
-            "dev-main": "0.8.x-dev"
-        },
-        "venusian": {
-            "upstream": "laravel/framework",
-            "upstream-ref": "v12.67.0",
-            "upstream-path": "src/Illuminate/Events",
-            "ported-at": "2026-08-19"
+            "dev-main": "0.9.x-dev"
         }
     },
     "config": {

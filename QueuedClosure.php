@@ -1,12 +1,15 @@
 <?php
 
-namespace Voyager\Events;
+namespace Voyager\Signals;
 
 use Closure;
+use DateInterval;
+use DateTimeInterface;
+use UnitEnum;
 use Voyager\NutsAndBolts\Collection;
 use Laravel\SerializableClosure\SerializableClosure;
 
-use function Voyager\NutsAndBolts\Helpers\enum_value;
+use function Voyager\NutsAndBolts\enum_value;
 
 class QueuedClosure
 {
@@ -22,45 +25,42 @@ class QueuedClosure
      *
      * @var string|null
      */
-    public ?string $connection = null;
+    public ?string $connection;
 
     /**
      * The name of the queue the job should be sent to.
      *
      * @var string|null
      */
-    public ?string $queue = null;
+    public ?string $queue;
 
     /**
      * The job "group" the job should be sent to.
      *
      * @var string|null
      */
-    public ?string $messageGroup = null;
+    public ?string $message_group;
 
     /**
      * The job deduplicator callback the job should use to generate the deduplication ID.
      *
-     * Kept as `mixed`: withDeduplicator() only wraps a Closure in a
-     * SerializableClosure and stores any other callable as-is.
-     *
-     * @var \Laravel\SerializableClosure\SerializableClosure|callable|null
+     * @var \Laravel\SerializableClosure\SerializableClosure|null
      */
-    public mixed $deduplicator = null;
+    public ?SerializableClosure $deduplicator;
 
     /**
      * The number of seconds before the job should be made available.
      *
      * @var \DateTimeInterface|\DateInterval|int|null
      */
-    public \DateTimeInterface|\DateInterval|int|null $delay = null;
+    public int|null|\DateTimeInterface|\DateInterval $delay;
 
     /**
-     * Every "catch" callback for the queued closure.
+     * All of the "catch" callbacks for the queued closure.
      *
      * @var array
      */
-    public array $catchCallbacks = [];
+    public array $catch_callbacks = [];
 
     /**
      * Create a new queued closure event listener resolver.
@@ -75,10 +75,10 @@ class QueuedClosure
     /**
      * Set the desired connection for the job.
      *
-     * @param  \UnitEnum|string|null  $connection
+     * @param \UnitEnum|string|null $connection
      * @return $this
      */
-    public function onConnection(\UnitEnum|string|null $connection): static
+    public function onConnection(UnitEnum|string|null $connection): static
     {
         $this->connection = enum_value($connection);
 
@@ -88,10 +88,10 @@ class QueuedClosure
     /**
      * Set the desired queue for the job.
      *
-     * @param  \UnitEnum|string|null  $queue
+     * @param \UnitEnum|string|null $queue
      * @return $this
      */
-    public function onQueue(\UnitEnum|string|null $queue): static
+    public function onQueue(UnitEnum|string|null $queue): static
     {
         $this->queue = enum_value($queue);
 
@@ -103,12 +103,12 @@ class QueuedClosure
      *
      * This feature is only supported by some queues, such as Amazon SQS.
      *
-     * @param  \UnitEnum|string|null  $group
+     * @param \UnitEnum|string $group
      * @return $this
      */
-    public function onGroup(\UnitEnum|string|null $group): static
+    public function onGroup(UnitEnum|string $group): static
     {
-        $this->messageGroup = enum_value($group);
+        $this->message_group = enum_value($group);
 
         return $this;
     }
@@ -118,13 +118,10 @@ class QueuedClosure
      *
      * This feature is only supported by some queues, such as Amazon SQS FIFO.
      *
-     * $deduplicator stays `mixed`: any callable shape is accepted and stored raw
-     * unless it is a Closure.
-     *
-     * @param  callable|null  $deduplicator
+     * @param callable|null $deduplicator
      * @return $this
      */
-    public function withDeduplicator(mixed $deduplicator): static
+    public function withDeduplicator(?callable $deduplicator): static
     {
         $this->deduplicator = $deduplicator instanceof Closure
             ? new SerializableClosure($deduplicator)
@@ -136,10 +133,10 @@ class QueuedClosure
     /**
      * Set the desired delay in seconds for the job.
      *
-     * @param  \DateTimeInterface|\DateInterval|int|null  $delay
+     * @param \DateInterval|\DateTimeInterface|int|null $delay
      * @return $this
      */
-    public function delay(\DateTimeInterface|\DateInterval|int|null $delay): static
+    public function delay(DateInterval|DateTimeInterface|int|null $delay): static
     {
         $this->delay = $delay;
 
@@ -154,7 +151,7 @@ class QueuedClosure
      */
     public function catch(Closure $closure): static
     {
-        $this->catchCallbacks[] = $closure;
+        $this->catch_callbacks[] = $closure;
 
         return $this;
     }
@@ -164,7 +161,7 @@ class QueuedClosure
      *
      * @return \Closure
      */
-    public function resolve(): Closure
+    public function resolve()
     {
         return function (...$arguments) {
             dispatch(new CallQueuedListener(InvokeQueuedClosure::class, 'handle', [
@@ -177,7 +174,7 @@ class QueuedClosure
                 ->onConnection($this->connection)
                 ->onQueue($this->queue)
                 ->delay($this->delay)
-                ->onGroup($this->messageGroup)
+                ->onGroup($this->message_group)
                 ->withDeduplicator($this->deduplicator);
         };
     }
