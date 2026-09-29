@@ -10,6 +10,11 @@ use Voyager\Vessel\ControlPanel;
 use Voyager\Contracts\Queue\Queue;
 use Voyager\NutsAndBolts\Collection;
 use Voyager\Contracts\Queue\ShouldQueue;
+use Voyager\Bus\UniqueLock;
+use Voyager\Contracts\Queue\ShouldBeEncrypted;
+use Voyager\Contracts\Cache\Repository as CacheRepository;
+use Voyager\Contracts\Queue\ShouldQueueAfterCommit;
+use Voyager\Contracts\Queue\Factory as QueueFactory;
 use Voyager\NutsAndBolts\DataObjects\Arr;
 use Voyager\NutsAndBolts\DataObjects\Str;
 use Voyager\Contracts\Signals\NamedSignal;
@@ -21,6 +26,8 @@ use Voyager\Contracts\Signals\ShouldDispatchAfterCommit;
 use Voyager\Contracts\Signals\ShouldHandleSignalsAfterCommit;
 use Voyager\Contracts\Broadcasting\Factory as BroadcastFactory;
 use Voyager\Contracts\Signals\SignalDispatcher as DispatcherContract;
+
+use function Voyager\NutsAndBolts\Helpers\enum_value;
 
 class SignalDispatcher implements DispatcherContract
 {
@@ -717,6 +724,103 @@ class SignalDispatcher implements DispatcherContract
                 $this->queueHandler($class, $method, $arguments);
             }
         };
+    }
+
+    /**
+     * A listener with shouldQueue() decides per signal whether it goes on the queue.
+     *
+     * @param  class-string  $class
+     * @param  array<int, mixed>  $arguments
+     */
+    protected function handlerWantsToBeQueued(string $class, array $arguments): bool
+    {
+        $instance = $this->app->make($class);
+
+        return method_exists($instance, 'shouldQueue') ? (bool) $instance->shouldQueue($arguments[0] ?? null) : true;
+    }
+
+    /**
+     * Pushes the listener onto its connection and queue, now or after its delay.
+     *
+     * @param  class-string  $class
+     * @param  array<int, mixed>  $arguments
+     */
+    protected function queueHandler(string $class, string $method, array $arguments): void
+    {
+        [$listener, $job] = $this->createListenerAndJob($class, $method, $arguments);
+
+        // a unique listener already on the queue for these arguments isn't pushed again
+        if ($job->shouldBeUnique() && ! (new UniqueLock($this->app->make(CacheRepository::class)))->acquire($job)) {
+            return;
+        }
+
+        $connection = $this->resolveQueue()->connection(method_exists($listener, 'viaConnection')
+            ? (isset($arguments[0]) ? $listener->viaConnection($arguments[0]) : $listener->viaConnection())
+            : $listener->connection ?? null);
+
+        $queue = method_exists($listener, 'viaQueue')
+            ? (isset($arguments[0]) ? $listener->viaQueue($arguments[0]) : $listener->viaQueue())
+            : $listener->queue ?? null;
+
+        $delay = method_exists($listener, 'withDelay')
+            ? (isset($arguments[0]) ? $listener->withDelay($arguments[0]) : $listener->withDelay())
+            : $listener->delay ?? null;
+
+        is_null($delay)
+            ? $connection->push($job, queue: enum_value($queue))
+            : $connection->later($delay, $job, queue: enum_value($queue));
+    }
+
+    /**
+     * The listener is read for its queue options without being constructed; the job carries it.
+     *
+     * @param  class-string  $class
+     * @param  array<int, mixed>  $arguments
+     * @return array{0: object, 1: CallQueuedListener}
+     */
+    protected function createListenerAndJob(string $class, string $method, array $arguments): array
+    {
+        $listener = new ReflectionClass($class)->newInstanceWithoutConstructor();
+
+        return [$listener, $this->propagateListenerOptions($listener, new CallQueuedListener($class, $method, $arguments))];
+    }
+
+    /** Copies the listener's queue options onto the job that carries it. */
+    protected function propagateListenerOptions(object $listener, CallQueuedListener $job): CallQueuedListener
+    {
+        $data = array_values($job->data);
+
+        $job->afterCommit = $listener instanceof ShouldQueueAfterCommit
+            ? true
+            : (property_exists($listener, 'afterCommit') ? $listener->afterCommit : null);
+        $job->backoff = method_exists($listener, 'backoff') ? $listener->backoff(...$data) : ($listener->backoff ?? null);
+        $job->maxExceptions = $listener->maxExceptions ?? null;
+        $job->retryUntil = method_exists($listener, 'retryUntil') ? $listener->retryUntil(...$data) : null;
+        $job->shouldBeEncrypted = $listener instanceof ShouldBeEncrypted;
+        $job->timeout = $listener->timeout ?? null;
+        $job->failOnTimeout = $listener->failOnTimeout ?? false;
+        $job->tries = method_exists($listener, 'tries') ? $listener->tries(...$data) : ($listener->tries ?? null);
+        $job->messageGroup = method_exists($listener, 'messageGroup') ? $listener->messageGroup(...$data) : ($listener->messageGroup ?? null);
+        $job->withDeduplicator(method_exists($listener, 'deduplicator')
+            ? $listener->deduplicator(...$data)
+            : (method_exists($listener, 'deduplicationId') ? $listener->deduplicationId(...) : null));
+
+        return $job->through(array_merge(
+            method_exists($listener, 'middleware') ? $listener->middleware(...$data) : [],
+            $listener->middleware ?? [],
+        ));
+    }
+
+    /**
+     * @throws \RuntimeException no queue resolver is set
+     */
+    protected function resolveQueue(): QueueFactory
+    {
+        if (is_null($this->queue_resolver)) {
+            throw new \RuntimeException('A listener wants the queue, and this dispatcher has no queue resolver: the Queue component sets one.');
+        }
+
+        return call_user_func($this->queue_resolver);
     }
 
     /**
