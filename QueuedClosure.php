@@ -25,35 +25,35 @@ class QueuedClosure
      *
      * @var string|null
      */
-    public ?string $connection;
+    public ?string $connection = null;
 
     /**
      * The name of the queue the job should be sent to.
      *
      * @var string|null
      */
-    public ?string $queue;
+    public ?string $queue = null;
 
     /**
      * The job "group" the job should be sent to.
      *
      * @var string|null
      */
-    public ?string $message_group;
+    public ?string $message_group = null;
 
     /**
      * The job deduplicator callback the job should use to generate the deduplication ID.
      *
      * @var \Laravel\SerializableClosure\SerializableClosure|null
      */
-    public ?SerializableClosure $deduplicator;
+    public ?SerializableClosure $deduplicator = null;
 
     /**
      * The number of seconds before the job should be made available.
      *
      * @var \DateTimeInterface|\DateInterval|int|null
      */
-    public int|null|\DateTimeInterface|\DateInterval $delay;
+    public int|null|\DateTimeInterface|\DateInterval $delay = null;
 
     /**
      * All of the "catch" callbacks for the queued closure.
@@ -123,9 +123,9 @@ class QueuedClosure
      */
     public function withDeduplicator(?callable $deduplicator): static
     {
-        $this->deduplicator = $deduplicator instanceof Closure
-            ? new SerializableClosure($deduplicator)
-            : $deduplicator;
+        $this->deduplicator = is_null($deduplicator)
+            ? null
+            : new SerializableClosure($deduplicator instanceof Closure ? $deduplicator : Closure::fromCallable($deduplicator));
 
         return $this;
     }
@@ -164,18 +164,24 @@ class QueuedClosure
     public function resolve()
     {
         return function (...$arguments) {
-            dispatch(new CallQueuedListener(InvokeQueuedClosure::class, 'handle', [
+            $pending = dispatch(new CallQueuedListener(InvokeQueuedClosure::class, 'handle', [
                 'closure' => new SerializableClosure($this->closure),
                 'arguments' => $arguments,
-                'catch' => (new Collection($this->catchCallbacks))
+                'catch' => (new Collection($this->catch_callbacks))
                     ->map(fn ($callback) => new SerializableClosure($callback))
                     ->all(),
             ]))
                 ->onConnection($this->connection)
                 ->onQueue($this->queue)
-                ->delay($this->delay)
-                ->onGroup($this->message_group)
-                ->withDeduplicator($this->deduplicator);
+                ->delay($this->delay);
+
+            if (! is_null($this->message_group)) {
+                $pending->onGroup($this->message_group);
+            }
+
+            if (! is_null($this->deduplicator)) {
+                $pending->withDeduplicator($this->deduplicator);
+            }
         };
     }
 }
