@@ -606,7 +606,7 @@ class SignalDispatcher implements DispatcherContract
      *
      * @param  callable|string|array{class-string, string}|null  $listener
      * @param  bool  $wildcard
-     * @return callable
+     * @return \Closure
      */
     public function makeListener(mixed $listener, bool $wildcard = false): Closure
     {
@@ -632,7 +632,7 @@ class SignalDispatcher implements DispatcherContract
      *
      * @param  array{class-string, string}|string  $listener
      * @param  bool  $wildcard
-     * @return callable
+     * @return \Closure
      */
     public function createClassListener(array|string $listener, bool $wildcard = false): Closure
     {
@@ -711,7 +711,7 @@ class SignalDispatcher implements DispatcherContract
      *
      * @param  class-string  $class
      * @param  string  $method
-     * @return callable(): void
+     * @return \Closure(): void
      */
     protected function createQueuedHandlerCallable(string $class, string $method): Closure
     {
@@ -841,7 +841,7 @@ class SignalDispatcher implements DispatcherContract
      *
      * @param  mixed  $listener
      * @param  string  $method
-     * @return callable
+     * @return \Closure
      */
     protected function createCallbackForListenerRunningAfterCommits(mixed $listener, string $method): Closure
     {
